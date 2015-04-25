@@ -10,9 +10,10 @@
 #include "itkEllipseSpatialObject.h"
 #include "itkSpatialObjectToImageFilter.h"
 #include "itkImageFileWriter.h"
-#include "itkImageFileReader.h"
- 
-
+#include "itkImageSeriesReader.h"
+#include "itkImage.h"
+#include "itkGDCMImageIO.h"
+#include "itkGDCMSeriesFileNames.h"
  
 int main( int argc, char *argv[] )
 {  
@@ -20,22 +21,116 @@ int main( int argc, char *argv[] )
   {
     std::cerr << "Missing Parameters " << std::endl;
     std::cerr << "Usage: " << argv[0];
-    std::cerr << " fixedImageFile  movingImageFile " << std::endl;
+    std::cerr << " fixedDicomDirectory  movingDicomDirectory " << std::endl;
     return EXIT_FAILURE;
   }
   
-  const    unsigned int    Dimension = 2;
+  const    unsigned int    Dimension = 3;
   typedef  unsigned char   PixelType;
 
   typedef itk::Image< PixelType, Dimension >  ImageType;
   
-  typedef itk::ImageFileReader< ImageType  >   FixedImageReaderType;
-  typedef itk::ImageFileReader< ImageType >   MovingImageReaderType;
-  FixedImageReaderType::Pointer   fixedImageReader     = FixedImageReaderType::New();
-  MovingImageReaderType::Pointer  movingImageReader    = MovingImageReaderType::New();
+  typedef itk::ImageSeriesReader< ImageType  >   FixedDicomReaderType;
+  typedef itk::ImageSeriesReader< ImageType >   MovingDicomReaderType;
+  FixedDicomReaderType::Pointer   fixedDicomReader     = FixedDicomReaderType::New();
+  MovingDicomReaderType::Pointer  movingDicomReader    = MovingDicomReaderType::New();
 
-  fixedImageReader->SetFileName(  argv[1] );
-  movingImageReader->SetFileName( argv[2] ); 
+  typedef itk::GDCMImageIO       FixedImageIOType;
+  typedef itk::GDCMImageIO       MovingImageIOType;
+  FixedImageIOType::Pointer fixedDicomIO = FixedImageIOType::New();
+  MovingImageIOType::Pointer movingDicomIO = MovingImageIOType::New();
+
+  fixedDicomReader->SetImageIO( fixedDicomIO );
+  movingDicomReader->SetImageIO( movingDicomIO );
+  
+  //fixed
+  typedef itk::GDCMSeriesFileNames FixedNamesGeneratorType;
+  FixedNamesGeneratorType::Pointer fixedNameGenerator = FixedNamesGeneratorType::New();
+
+  fixedNameGenerator->SetUseSeriesDetails( true );
+  //nameGenerator->AddSeriesRestriction("0008|0021" );
+
+  fixedNameGenerator->SetDirectory( argv[1] );
+  
+  
+  //moving
+  typedef itk::GDCMSeriesFileNames MovingNamesGeneratorType;
+  MovingNamesGeneratorType::Pointer movingNameGenerator = MovingNamesGeneratorType::New();
+
+  movingNameGenerator->SetUseSeriesDetails( true );
+  //nameGenerator->AddSeriesRestriction("0008|0021" );
+
+  movingNameGenerator->SetDirectory( argv[2] );
+  
+  //fixed  
+  typedef std::vector< std::string >    FixedSeriesIdContainer;
+
+  const FixedSeriesIdContainer & fixedSeriesUID = fixedNameGenerator->GetSeriesUIDs();
+
+  FixedSeriesIdContainer::const_iterator fixedSeriesItr = fixedSeriesUID.begin();
+  FixedSeriesIdContainer::const_iterator fixedSeriesEnd = fixedSeriesUID.end();
+  
+  while( fixedSeriesItr != fixedSeriesEnd )
+  {
+	std::cout << fixedSeriesItr->c_str() << std::endl;
+	++fixedSeriesItr;
+  }
+  
+  std::string fixedSeriesIdentifier;
+  fixedSeriesIdentifier = fixedSeriesUID.begin()->c_str();
+  
+  typedef std::vector< std::string >   FixedFileNamesContainer;
+  FixedFileNamesContainer fixedFileNames;
+
+  fixedFileNames = fixedNameGenerator->GetFileNames( fixedSeriesIdentifier );
+  
+  fixedDicomReader->SetFileNames( fixedFileNames );
+
+  try
+  {
+	fixedDicomReader->Update();
+  } 
+  catch (itk::ExceptionObject &ex)
+  {
+	std::cout << ex << std::endl;
+	return EXIT_FAILURE;
+  }
+  
+  //moving
+  typedef std::vector< std::string >    MovingSeriesIdContainer;
+
+  const MovingSeriesIdContainer & movingSeriesUID = movingNameGenerator->GetSeriesUIDs();
+
+  MovingSeriesIdContainer::const_iterator movingSeriesItr = movingSeriesUID.begin();
+  MovingSeriesIdContainer::const_iterator movingSeriesEnd = movingSeriesUID.end();
+  
+  while( movingSeriesItr != movingSeriesEnd )
+  {
+	std::cout << movingSeriesItr->c_str() << std::endl;
+	++movingSeriesItr;
+  }
+  
+  std::string movingSeriesIdentifier;
+  movingSeriesIdentifier = movingSeriesUID.begin()->c_str();
+  
+  typedef std::vector< std::string >   MovingFileNamesContainer;
+  MovingFileNamesContainer movingFileNames;
+
+  movingFileNames = movingNameGenerator->GetFileNames( movingSeriesIdentifier );
+  
+  movingDicomReader->SetFileNames( movingFileNames );
+  
+  try
+  {
+	movingDicomReader->Update();
+  } 
+  catch (itk::ExceptionObject &ex)
+  {
+	std::cout << ex << std::endl;
+	return EXIT_FAILURE;
+  }
+  ///// At this point, we have a volumetric image in memory that we can access by
+  ///// invoking the \code{GetOutput()} method of the reader.
 
   // Images are unsigned char pixel type but use floats internally 
   typedef   float                       InternalPixelType;
@@ -47,8 +142,8 @@ int main( int argc, char *argv[] )
   NormalizeFilterType::Pointer fixedNormalizer = NormalizeFilterType::New();
   NormalizeFilterType::Pointer movingNormalizer = NormalizeFilterType::New();
   
-  fixedNormalizer->SetInput(  fixedImageReader->GetOutput());
-  movingNormalizer->SetInput( movingImageReader->GetOutput());
+  fixedNormalizer->SetInput(  fixedDicomReader->GetOutput());
+  movingNormalizer->SetInput( movingDicomReader->GetOutput());
   
   // Smooth the images
   typedef itk::DiscreteGaussianImageFilter<InternalImageType,InternalImageType> GaussianFilterType;
@@ -115,11 +210,17 @@ int main( int argc, char *argv[] )
   initialParameters[0] = 1.0;  // R(0,0)
   initialParameters[1] = 0.0;  // R(0,1)
   initialParameters[2] = 0.0;  // R(1,0)
-  initialParameters[3] = 1.0;  // R(1,1)
+  initialParameters[3] = 0.0;  // R(1,1)
+  initialParameters[4] = 0.0;  // R(1,1)
+  initialParameters[5] = 0.0;  // R(1,1)
+  initialParameters[6] = 0.0;  // R(1,1)
+  initialParameters[7] = 0.0;  // R(1,1)
+  initialParameters[8] = 1.0;  // R(1,1)
  
   // translation vector
-  initialParameters[4] = 0.0;
-  initialParameters[5] = 0.0;
+  initialParameters[9] = 0.0;
+  initialParameters[10] = 0.0;
+  initialParameters[11] = 0.0;
  
   registration->SetInitialTransformParameters( initialParameters );
  
@@ -221,12 +322,12 @@ int main( int argc, char *argv[] )
   ResampleFilterType::Pointer resample = ResampleFilterType::New();
  
   resample->SetTransform( finalTransform );
-  resample->SetInput( movingImageReader->GetOutput());
+  resample->SetInput( movingDicomReader->GetOutput());
  
-  resample->SetSize(    fixedImageReader->GetOutput()->GetLargestPossibleRegion().GetSize() );
-  resample->SetOutputOrigin(  fixedImageReader->GetOutput()->GetOrigin() );
-  resample->SetOutputSpacing( fixedImageReader->GetOutput()->GetSpacing() );
-  resample->SetOutputDirection( fixedImageReader->GetOutput()->GetDirection() );
+  resample->SetSize(    fixedDicomReader->GetOutput()->GetLargestPossibleRegion().GetSize() );
+  resample->SetOutputOrigin(  fixedDicomReader->GetOutput()->GetOrigin() );
+  resample->SetOutputSpacing( fixedDicomReader->GetOutput()->GetSpacing() );
+  resample->SetOutputDirection( fixedDicomReader->GetOutput()->GetDirection() );
   resample->SetDefaultPixelValue( 100 );
   
   typedef itk::ImageFileWriter< ImageType >  WriterType;
