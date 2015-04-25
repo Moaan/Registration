@@ -261,7 +261,7 @@ int main( int argc, char *argv[] )
   initialParameters[1] = 0.0;  // R(0,1)
   initialParameters[2] = 0.0;  // R(1,0)
   initialParameters[3] = 0.0;  // R(1,1)
-  initialParameters[4] = 0.0;  // R(1,1)
+  initialParameters[4] = 1.0;  // R(1,1)
   initialParameters[5] = 0.0;  // R(1,1)
   initialParameters[6] = 0.0;  // R(1,1)
   initialParameters[7] = 0.0;  // R(1,1)
@@ -383,11 +383,25 @@ int main( int argc, char *argv[] )
   resample->SetOutputDirection( fixedDicomReader->GetOutput()->GetDirection() );
   resample->SetDefaultPixelValue( 100 );
   
+  //////////////Begin Dicom Writer
+  typedef itk::ImageFileWriter< ImageType > WriterType;
+  WriterType::Pointer writer = WriterType::New();
+
+   writer->SetFileName( "output.dcm" );
+
+   writer->SetInput( resample->GetOutput() );
+
+   writer->Update();
+
+  //////////////End Dicom Writer
+  
+  /*Writer for 2d
   typedef itk::ImageFileWriter< ImageType >  WriterType;
   WriterType::Pointer      writer =  WriterType::New();
   writer->SetFileName("output.png");
   writer->SetInput( resample->GetOutput()   );
   writer->Update();
+  */
  
   return EXIT_SUCCESS;
 }
