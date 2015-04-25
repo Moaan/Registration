@@ -9,7 +9,7 @@ if (ITKVtkGlue_LOADED)
   include(${VTK_USE_FILE})
 endif()
  
-add_executable(WindRegistration MACOSX_BUNDLE WindRegistration.cxx)
+add_executable(WindRegistration MACOSX_BUNDLE WindRegistration_Rigid.cxx)
  
 if( "${ITK_VERSION_MAJOR}" LESS 4 )
   target_link_libraries(WindRegistration ITKReview ${ITK_LIBRARIES})
