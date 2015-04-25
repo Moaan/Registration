@@ -14,6 +14,50 @@
 #include "itkImage.h"
 #include "itkGDCMImageIO.h"
 #include "itkGDCMSeriesFileNames.h"
+
+
+class CommandIterationUpdate : public itk::Command
+{
+public:
+  typedef  CommandIterationUpdate   Self;
+  typedef  itk::Command             Superclass;
+
+  typedef itk::SmartPointer<Self>  Pointer;
+  
+  itkNewMacro( Self );
+  
+
+protected:
+  CommandIterationUpdate() {};
+
+public:
+  
+  typedef itk::GradientDescentOptimizer OptimizerType;
+  typedef const OptimizerType *                              OptimizerPointer;
+  
+  void Execute(itk::Object *caller, const itk::EventObject & event)
+    {
+    Execute( (const itk::Object *)caller, event);
+    }
+  
+  void Execute(const itk::Object * object, const itk::EventObject & event)
+    {
+    
+    OptimizerPointer optimizer =
+                         static_cast< OptimizerPointer >( object );
+    
+    if( ! itk::IterationEvent().CheckEvent( &event ) )
+      {
+      return;
+      }
+    
+    std::cout << optimizer->GetCurrentIteration() << " = ";
+    std::cout << optimizer->GetValue() << " : ";
+    std::cout << optimizer->GetCurrentPosition() << std::endl;
+   
+    }
+
+};
  
 int main( int argc, char *argv[] )
 {  
@@ -131,6 +175,7 @@ int main( int argc, char *argv[] )
   }
   ///// At this point, we have a volumetric image in memory that we can access by
   ///// invoking the \code{GetOutput()} method of the reader.
+  std::cout << "We have two images now" << std::endl;
 
   // Images are unsigned char pixel type but use floats internally 
   typedef   float                       InternalPixelType;
@@ -174,6 +219,11 @@ int main( int argc, char *argv[] )
   OptimizerType::Pointer      optimizer     = OptimizerType::New();
   InterpolatorType::Pointer   interpolator  = InterpolatorType::New();
   RegistrationType::Pointer   registration  = RegistrationType::New();
+  
+  std::cout << "Registration objects created." << std::endl;
+  
+  CommandIterationUpdate::Pointer observer = CommandIterationUpdate::New();
+  optimizer->AddObserver( itk::IterationEvent(), observer );
  
   registration->SetOptimizer(     optimizer     );
   registration->SetTransform(     transform     );
@@ -224,6 +274,8 @@ int main( int argc, char *argv[] )
  
   registration->SetInitialTransformParameters( initialParameters );
  
+  std::cout << "parameters are set." << std::endl;
+  
   //  Software Guide : BeginLatex
   //
   //  We should now define the number of spatial samples to be considered in
@@ -255,14 +307,14 @@ int main( int argc, char *argv[] )
   const unsigned int numberOfPixels = fixedImageRegion.GetNumberOfPixels();
  
   const unsigned int numberOfSamples =
-                        static_cast< unsigned int >( numberOfPixels * 0.01 );
+                        static_cast< unsigned int >( numberOfPixels * 0.001 );
  
   metric->SetNumberOfSpatialSamples( numberOfSamples );
  
   //optimizer->SetLearningRate( 15.0 ); //"All the sampled point mapped to outside of the moving image"
   //optimizer->SetLearningRate( 1.0 );
   optimizer->SetLearningRate( 0.1 );
-  optimizer->SetNumberOfIterations( 1000 );
+  optimizer->SetNumberOfIterations( 1 );
   optimizer->MaximizeOn(); // We want to maximize mutual information (the default of the optimizer is to minimize)
  
   // Note that large values of the learning rate will make the optimizer
@@ -283,6 +335,7 @@ int main( int argc, char *argv[] )
  
   try
     {
+	std::cout << "registration starting..." << std::endl;
     registration->Update();
     std::cout << "Optimizer stop condition: "
               << registration->GetOptimizer()->GetStopConditionDescription()
