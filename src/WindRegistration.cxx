@@ -441,11 +441,25 @@ int main( int argc, char *argv[] )
   resample->SetOutputDirection( fixedDicomReader->GetOutput()->GetDirection() );
   resample->SetDefaultPixelValue( DEFAULT_PIXEL_VALUE );
   
+  //////////////Begin Dicom Writer
+  typedef itk::ImageFileWriter< ImageType > WriterType;
+  WriterType::Pointer writer = WriterType::New();
+
+   writer->SetFileName( "output.dcm" );
+
+   writer->SetInput( resample->GetOutput() );
+
+   writer->Update();
+
+  //////////////End Dicom Writer
+  
+  /*Writer for 2d
   typedef itk::ImageFileWriter< ImageType >  WriterType;
   WriterType::Pointer      writer =  WriterType::New();
   writer->SetFileName("output.dcm");
   writer->SetInput( resample->GetOutput()   );
   writer->Update();
+  */
  
   return EXIT_SUCCESS;
 }
