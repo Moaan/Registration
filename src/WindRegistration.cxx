@@ -1,6 +1,13 @@
+
+#define MUTUAL_INFO 1
+
 #include "itkImageRegistrationMethod.h"
 #include "itkAffineTransform.h"
+#if MUTUAL_INFO == 1
 #include "itkMutualInformationImageToImageMetric.h"
+#else
+#include "itkMeanSquaresImageToImageMetric.h"
+#endif
 #include "itkGradientDescentOptimizer.h"
 #include "itkNormalizeImageFilter.h"
 #include "itkDiscreteGaussianImageFilter.h"
@@ -14,6 +21,19 @@
 #include "itkImage.h"
 #include "itkGDCMImageIO.h"
 #include "itkGDCMSeriesFileNames.h"
+#include "itkShrinkImageFilter.h"
+#include <ctime>
+
+#define SMOOTHER_VARIANCE 4.0
+#define SHRINK_FACTOR 4
+#define METRIC_STANDARD_DEVIANTION 0.4
+#define SAMPLE_FRACTION 0.01
+#define LEARNING_RATE 0.025
+#define MAX_ITERATIONS 1000
+#define DEFAULT_PIXEL_VALUE 100
+
+
+std::clock_t start_timer;
 
 
 class CommandIterationUpdate : public itk::Command
@@ -52,8 +72,10 @@ public:
       }
     
     std::cout << optimizer->GetCurrentIteration() << " = ";
-    std::cout << optimizer->GetValue() << " : ";
-    std::cout << optimizer->GetCurrentPosition() << std::endl;
+    std::cout << optimizer->GetValue() << " : " << ( std::clock() - start_timer ) / (double) CLOCKS_PER_SEC << "s" << std::endl;
+    // std::cout << optimizer->GetCurrentPosition() << std::endl;
+
+    start_timer = std::clock();
    
     }
 
@@ -70,7 +92,7 @@ int main( int argc, char *argv[] )
   }
   
   const    unsigned int    Dimension = 3;
-  typedef  unsigned char   PixelType;
+  typedef  unsigned short   PixelType;
 
   typedef itk::Image< PixelType, Dimension >  ImageType;
   
@@ -175,7 +197,7 @@ int main( int argc, char *argv[] )
   }
   ///// At this point, we have a volumetric image in memory that we can access by
   ///// invoking the \code{GetOutput()} method of the reader.
-  std::cout << "We have two images now" << std::endl;
+  // std::cout << "We have two images now" << std::endl;
 
   // Images are unsigned char pixel type but use floats internally 
   typedef   float                       InternalPixelType;
@@ -196,8 +218,8 @@ int main( int argc, char *argv[] )
   GaussianFilterType::Pointer fixedSmoother  = GaussianFilterType::New();
   GaussianFilterType::Pointer movingSmoother = GaussianFilterType::New();
  
-  fixedSmoother->SetVariance( 2.0 );
-  movingSmoother->SetVariance( 2.0 );
+  fixedSmoother->SetVariance( SMOOTHER_VARIANCE );
+  movingSmoother->SetVariance( SMOOTHER_VARIANCE );
  
   fixedSmoother->SetInput( fixedNormalizer->GetOutput() );
   movingSmoother->SetInput( movingNormalizer->GetOutput() );
@@ -211,16 +233,25 @@ int main( int argc, char *argv[] )
   typedef itk::ImageRegistrationMethod<
                                     InternalImageType,
                                     InternalImageType >  RegistrationType;
+#if MUTUAL_INFO == 1
   typedef itk::MutualInformationImageToImageMetric<
                                           InternalImageType,
                                           InternalImageType >    MetricType;
+#else
+  typedef itk::MeanSquaresImageToImageMetric< 
+                                       InternalImageType, 
+                                       InternalImageType >    MetricType;
+#endif
+ 
+
+
  
   TransformType::Pointer      transform     = TransformType::New();
   OptimizerType::Pointer      optimizer     = OptimizerType::New();
   InterpolatorType::Pointer   interpolator  = InterpolatorType::New();
   RegistrationType::Pointer   registration  = RegistrationType::New();
   
-  std::cout << "Registration objects created." << std::endl;
+  // std::cout << "Registration objects created." << std::endl;
   
   CommandIterationUpdate::Pointer observer = CommandIterationUpdate::New();
   optimizer->AddObserver( itk::IterationEvent(), observer );
@@ -242,15 +273,36 @@ int main( int argc, char *argv[] )
   //  shown that a kernel standard deviation of $0.4$ works well for images
   //  which have been normalized to a mean of zero and unit variance.  We
   //  will follow this empirical rule in this example.
- 
-  metric->SetFixedImageStandardDeviation(  0.4 );
-  metric->SetMovingImageStandardDeviation( 0.4 );
- 
-  registration->SetFixedImage(    fixedSmoother->GetOutput()    );
-  registration->SetMovingImage(   movingSmoother->GetOutput()   );
+#if MUTUAL_INFO == 1
+  metric->SetFixedImageStandardDeviation(  METRIC_STANDARD_DEVIANTION );
+  metric->SetMovingImageStandardDeviation( METRIC_STANDARD_DEVIANTION );
+#endif
+  
 
-  fixedNormalizer->Update();
-  ImageType::RegionType fixedImageRegion = fixedNormalizer->GetOutput()->GetBufferedRegion();//GetLargestPossibleRegion();
+  // shrink images to improve registration time
+  typedef itk::ShrinkImageFilter <InternalImageType, InternalImageType>
+          ShrinkImageFilterType;
+ 
+  ShrinkImageFilterType::Pointer fixedShrinkFilter = ShrinkImageFilterType::New();
+  ShrinkImageFilterType::Pointer movingShrinkFilter = ShrinkImageFilterType::New();
+
+  fixedShrinkFilter->SetInput( fixedSmoother->GetOutput() );
+  movingShrinkFilter->SetInput( movingSmoother->GetOutput() );
+
+  fixedShrinkFilter->SetShrinkFactor(0, SHRINK_FACTOR);
+  fixedShrinkFilter->SetShrinkFactor(1, SHRINK_FACTOR); 
+  fixedShrinkFilter->SetShrinkFactor(3, SHRINK_FACTOR);
+  movingShrinkFilter->SetShrinkFactor(0, SHRINK_FACTOR);
+  movingShrinkFilter->SetShrinkFactor(1, SHRINK_FACTOR); 
+  movingShrinkFilter->SetShrinkFactor(3, SHRINK_FACTOR);
+
+
+  registration->SetFixedImage(    fixedShrinkFilter->GetOutput()    );
+  registration->SetMovingImage(   movingShrinkFilter->GetOutput()   );
+
+
+  fixedShrinkFilter->Update();
+  ImageType::RegionType fixedImageRegion = fixedShrinkFilter->GetOutput()->GetBufferedRegion();//GetLargestPossibleRegion();
   registration->SetFixedImageRegion( fixedImageRegion );
  
   typedef RegistrationType::ParametersType ParametersType;
@@ -259,13 +311,13 @@ int main( int argc, char *argv[] )
   // rotation matrix (identity)
   initialParameters[0] = 1.0;  // R(0,0)
   initialParameters[1] = 0.0;  // R(0,1)
-  initialParameters[2] = 0.0;  // R(1,0)
-  initialParameters[3] = 0.0;  // R(1,1)
-  initialParameters[4] = 0.0;  // R(1,1)
-  initialParameters[5] = 0.0;  // R(1,1)
-  initialParameters[6] = 0.0;  // R(1,1)
-  initialParameters[7] = 0.0;  // R(1,1)
-  initialParameters[8] = 1.0;  // R(1,1)
+  initialParameters[2] = 0.0;  // R(0,2)
+  initialParameters[3] = 0.0;  // R(1,0)
+  initialParameters[4] = 1.0;  // R(1,1)
+  initialParameters[5] = 0.0;  // R(1,2)
+  initialParameters[6] = 0.0;  // R(2,0)
+  initialParameters[7] = 0.0;  // R(2,1)
+  initialParameters[8] = 1.0;  // R(2,2)
  
   // translation vector
   initialParameters[9] = 0.0;
@@ -274,7 +326,7 @@ int main( int argc, char *argv[] )
  
   registration->SetInitialTransformParameters( initialParameters );
  
-  std::cout << "parameters are set." << std::endl;
+  // std::cout << "parameters are set." << std::endl;
   
   //  Software Guide : BeginLatex
   //
@@ -303,20 +355,25 @@ int main( int argc, char *argv[] )
   //  of the Metric if the noise in their values results in more iterations
   //  being required by the optimizer to converge. You must then study the
   //  behavior of the metric values as the iterations progress.
- 
+
   const unsigned int numberOfPixels = fixedImageRegion.GetNumberOfPixels();
  
   const unsigned int numberOfSamples =
-                        static_cast< unsigned int >( numberOfPixels * 0.001 );
+                        static_cast< unsigned int >( numberOfPixels * SAMPLE_FRACTION );
  
   metric->SetNumberOfSpatialSamples( numberOfSamples );
  
   //optimizer->SetLearningRate( 15.0 ); //"All the sampled point mapped to outside of the moving image"
   //optimizer->SetLearningRate( 1.0 );
-  optimizer->SetLearningRate( 0.1 );
-  optimizer->SetNumberOfIterations( 1 );
+  optimizer->SetLearningRate( LEARNING_RATE );
+  optimizer->SetNumberOfIterations( MAX_ITERATIONS );
+
+#if MUTUAL_INFO == 1
   optimizer->MaximizeOn(); // We want to maximize mutual information (the default of the optimizer is to minimize)
- 
+#else
+  optimizer->MinimizeOn();
+#endif
+  
   // Note that large values of the learning rate will make the optimizer
   // unstable. Small values, on the other hand, may result in the optimizer
   // needing too many iterations in order to walk to the extrema of the cost
@@ -335,6 +392,7 @@ int main( int argc, char *argv[] )
  
   try
     {
+      start_timer = std::clock();
 	std::cout << "registration starting..." << std::endl;
     registration->Update();
     std::cout << "Optimizer stop condition: "
@@ -381,11 +439,11 @@ int main( int argc, char *argv[] )
   resample->SetOutputOrigin(  fixedDicomReader->GetOutput()->GetOrigin() );
   resample->SetOutputSpacing( fixedDicomReader->GetOutput()->GetSpacing() );
   resample->SetOutputDirection( fixedDicomReader->GetOutput()->GetDirection() );
-  resample->SetDefaultPixelValue( 100 );
+  resample->SetDefaultPixelValue( DEFAULT_PIXEL_VALUE );
   
   typedef itk::ImageFileWriter< ImageType >  WriterType;
   WriterType::Pointer      writer =  WriterType::New();
-  writer->SetFileName("output.png");
+  writer->SetFileName("output.dcm");
   writer->SetInput( resample->GetOutput()   );
   writer->Update();
  
